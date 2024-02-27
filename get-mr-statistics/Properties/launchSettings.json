@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "get-mr-statistics": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "local"
+      }
+    }
+  }
+}
