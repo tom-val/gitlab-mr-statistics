@@ -1,4 +1,7 @@
-﻿using System.Text.Json;
+﻿using System.Net.Http.Json;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using get_mr_statistics;
 using get_mr_statistics.Models;
 using Microsoft.Extensions.Configuration;
@@ -76,8 +79,110 @@ foreach (var mergeRequestStat in mergeRequestStats)
     }
 }
 
+var slackClient = new HttpClient();
+var serializeOptions = new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    WriteIndented = true,
+    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+};
+
+var totalSlackMessage = new SlackMessage
+{
+    Text = "Total MR's",
+    Blocks =
+    [
+        new HeaderBlock
+        {
+            Text = new SimpleTextBlock
+            {
+                Text = $"Total merge requests from {settings.FromDate}: {mergeRequestStats.Count}"
+            }
+        },
+    ]
+};
+
+if (settings.UseSlack)
+{
+    await slackClient.PostAsJsonAsync(settings.SlackWebhookUrl, totalSlackMessage, serializeOptions);
+}
+
 foreach (var user in participationStats)
 {
+    if (settings.UseSlack)
+    {
+        var slackMessage = new SlackMessage
+        {
+            Text = $"{user.Key} statistics from {settings.FromDate}",
+            Blocks =
+            [
+                new HeaderBlock
+                {
+                    Text = new SimpleTextBlock
+                    {
+                        Text = $"{user.Key} statistics from {settings.FromDate}"
+                    }
+                },
+                new SectionBlock
+                {
+                    Fields = new List<MarkdownBlock>
+                    {
+                        new MarkdownBlock
+                        {
+                            Text = $"Created MR's: *{user.Value.ParticipatedAsAuthorCount}*"
+                        },
+                        new MarkdownBlock
+                        {
+                            Text = $"Wrote comments: *{user.Value.ParticipatedAsCommenter.Count}*"
+                        },
+                        new MarkdownBlock
+                        {
+                            Text = $"Wrote comments in MR's count: *{user.Value.ParticipatedAsCommenterInMrsCount}*"
+                        },
+                        new MarkdownBlock
+                        {
+                            Text = $"Wrote comments on own MR's: {user.Value.ParticipatedAsCommenterOnOwnMr.Count()}"
+                        },
+                        new MarkdownBlock
+                        {
+                            Text =
+                                $"Wrote comments on other people MR's: *{user.Value.ParticipatedAsCommenterOnNotOwnMr.Count()}*"
+                        },
+                        new MarkdownBlock
+                        {
+                            Text = $"Approved MR's: *{user.Value.ParticipatedAsApproverCount}*"
+                        },
+                        new MarkdownBlock
+                        {
+                            Text = $"Participated in total MR's: *{user.Value.AllParticipatedMrs}*"
+                        },
+                        new MarkdownBlock
+                        {
+                            Text =
+                                $"Participation percentage: *{(double)user.Value.AllParticipatedMrs / (double)mergeRequestStats.Count:P}*"
+                        },
+                        new MarkdownBlock
+                        {
+                            Text =
+                                $"Participation percentage in other people MR's: *{(double)user.Value.AllParticipatedOtherMrs / (double)(mergeRequestStats.Count - user.Value.ParticipatedAsAuthorCount):P}*"
+                        }
+                    }
+                }
+            ]
+        };
+
+        var t = JsonSerializer.Serialize(slackMessage, serializeOptions);
+
+        var slackResponse = await slackClient.PostAsJsonAsync(
+            settings.SlackWebhookUrl,
+            slackMessage,
+            serializeOptions);
+
+        var test = await slackResponse.Content.ReadAsStringAsync();
+        Console.WriteLine($"Slack response code: {slackResponse.StatusCode}");
+    }
+
     Console.WriteLine($"{user.Key} statistics from {settings.FromDate}");
     Console.WriteLine($"Created MR's: {user.Value.ParticipatedAsAuthorCount}");
     Console.WriteLine($"Wrote comments: {user.Value.ParticipatedAsCommenter.Count}");
@@ -87,7 +192,7 @@ foreach (var user in participationStats)
     Console.WriteLine($"Approved MR's: {user.Value.ParticipatedAsApproverCount}");
     Console.WriteLine($"Participated in total MR's: {user.Value.AllParticipatedMrs}");
     Console.WriteLine($"Participation percentage: {(double)user.Value.AllParticipatedMrs / (double)mergeRequestStats.Count:P}");
-    Console.WriteLine($"Participation percentage in other people MR's: {(double)user.Value.AllParticipatedOtherMrs  / (double)(mergeRequestStats.Count - user.Value.ParticipatedAsAuthorCount):P}");
+    Console.WriteLine($"Participation percentage in other people MR's: {(double)user.Value.AllParticipatedOtherMrs / (double)(mergeRequestStats.Count - user.Value.ParticipatedAsAuthorCount):P}");
     Console.WriteLine("------------------------------------------------------------------------");
     Console.WriteLine();
 }
